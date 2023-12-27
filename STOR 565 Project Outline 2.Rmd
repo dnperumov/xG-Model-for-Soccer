@@ -1,0 +1,789 @@
+---
+title: "STOR 565 Project Outline"
+output: pdf_document
+date: "2023-12-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Introduction
+
+## Description of Project
+### We are fitting an xG model
+### Describe the usefulness of xG
+### Give an overview of the process required to create an xG model
+
+
+# Exploratory Data Analysis
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Import the tools necessary to use StatsBomb data
+library(tidyverse)
+library(devtools)
+library(ggplot2)
+library(StatsBombR)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Show the available selection of StatsBomb data (note that not all rows denote full seasons of data).
+FreeCompetitions()
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Pull match data for the 2015/16 La Liga and Premier League seasons.
+
+# Pull La Liga Match Data
+Comp <- FreeCompetitions()[c(41),]
+Matches <- FreeMatches(Comp)
+StatsBombData <- free_allevents(MatchesDF = Matches, Parallel = T)
+StatsBombData = allclean(StatsBombData)
+laligadata = StatsBombData
+
+# Pull Premier League Match Data
+Comp <- FreeCompetitions()[c(59),]
+Matches <- FreeMatches(Comp)
+StatsBombData <- free_allevents(MatchesDF = Matches, Parallel = T)
+StatsBombData = allclean(StatsBombData)
+premdata = StatsBombData
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Create a dataframe that contains the shot event data for the seasons, as xG (expected goals) is a measure of shot/opportunity quality.
+
+laligashotsdf = laligadata[laligadata$type.id==16,]
+premshotsdf = premdata[premdata$type.id==16,]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+boollist = colnames(premshotsdf) %in% colnames(laligashotsdf)
+boollist2 = colnames(laligashotsdf) %in% colnames(premshotsdf)
+drop = colnames(premshotsdf)[!boollist]
+drop2 = colnames(laligashotsdf)[!boollist2]
+
+premtest = premshotsdf[,!(names(premshotsdf) %in% drop)]
+laligatest = laligashotsdf[,!(names(laligashotsdf) %in% drop2)]
+
+shotsdf = rbind(premtest, laligatest)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Drop irrelevant columns from our dataset (i.e. columns pertaining to non-shot related events like substitutions or passing).
+
+
+cleanshotsdf = shotsdf[c("location", "under_pressure", "type.name", "possession_team.name", "play_pattern.name", "team.id", "team.name", "player.id", "player.name", "position.name", "shot.statsbomb_xg", "shot.freeze_frame", "shot.first_time", "shot.one_on_one", "shot.aerial_won", "shot.technique.name", "shot.body_part.name", "shot.outcome.name", "shot.type.name", "match_id", "shot.open_goal", "shot.follows_dribble", "location.x", "location.y", "location.x.GK", "location.y.GK", "DistToGoal", "DistToKeeper", "AngleToGoal", "AngleToKeeper", "AngleDeviation", "DistSGK", "density", "density.incone", "distance.ToD1", "distance.ToD2", "AttackersBehindBall", "DefendersBehindBall", "DefendersInCone", "InCone.GK", "DefArea", "distance.ToD1.360", "distance.ToD2.360")]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Drop rows that contain shots taken from penalty and free kicks, as these would need to be modeled as part of a separate exercise.
+cleanshotsdf <- cleanshotsdf[cleanshotsdf$shot.type.name=="Open Play",]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Convert data to regression-friendly format
+
+cleanshotsdf$under_pressure <- ifelse(is.na(cleanshotsdf$under_pressure), 0, 1)
+
+cleanshotsdf$shot.first_time <- ifelse(is.na(cleanshotsdf$shot.first_time), 0, 1)
+
+cleanshotsdf$shot.one_on_one <- ifelse(is.na(cleanshotsdf$shot.one_on_one), 0, 1)
+
+cleanshotsdf$shot.aerial_won <- ifelse(is.na(cleanshotsdf$shot.aerial_won), 0, 1)
+
+cleanshotsdf$shot.technique.normal <- ifelse((cleanshotsdf$shot.technique.name == "Normal"), 1, 0)
+cleanshotsdf$shot.technique.halfvolley <- ifelse((cleanshotsdf$shot.technique.name == "Half Volley"), 1, 0)
+cleanshotsdf$shot.technique.backheel <- ifelse((cleanshotsdf$shot.technique.name == "Backheel"), 1, 0)
+cleanshotsdf$shot.technique.volley <- ifelse((cleanshotsdf$shot.technique.name == "Volley"), 1, 0)
+cleanshotsdf$shot.technique.overheadkick <- ifelse((cleanshotsdf$shot.technique.name == "Overhead Kick"), 1, 0)
+cleanshotsdf$shot.technique.divingheader <- ifelse((cleanshotsdf$shot.technique.name == "Diving Header"), 1, 0)
+cleanshotsdf$shot.technique.lob <- ifelse((cleanshotsdf$shot.technique.name == "Lob"), 1, 0)
+
+
+cleanshotsdf$shot.body_part.leftfoot <- ifelse((cleanshotsdf$shot.body_part.name == "Left Foot"), 1, 0)
+cleanshotsdf$shot.body_part.rightfoot <- ifelse((cleanshotsdf$shot.body_part.name == "Right Foot"), 1, 0)
+cleanshotsdf$shot.body_part.head <- ifelse((cleanshotsdf$shot.body_part.name == "Head"), 1, 0)
+cleanshotsdf$shot.body_part.other <- ifelse((cleanshotsdf$shot.body_part.name == "Other"), 1, 0)
+
+
+cleanshotsdf$shot.open_goal <- ifelse(is.na(cleanshotsdf$shot.open_goal), 0, 1)
+
+cleanshotsdf$shot.follows_dribble <- ifelse(is.na(cleanshotsdf$shot.follows_dribble), 0, 1)
+
+cleanshotsdf$shot.results.in.goal <- ifelse((cleanshotsdf$shot.outcome.name == "Goal"), 1, 0)
+
+cleanshotsdf
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Create new variables of possible interest
+
+cleanshotsdf$AngleToGoalNorm <- abs(cleanshotsdf$AngleToGoal - 90)
+
+cleanshotsdf$shotnumber <- c(1:length(cleanshotsdf$shot.aerial_won))
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Remove rows with NA values
+
+cleanshotsdf <- cleanshotsdf[(rowSums(is.na(cleanshotsdf))==0),]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Calculate variable correlations with goals scored
+
+library(corrplot)
+
+M = cor(cleanshotsdf[-c(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 16, 17, 18, 19, 20, 57)])
+#corrplot(M, method = 'circle', order = "AOE", diag = FALSE, tl.pos = "lt", tl.col = "black", tl.offset=1, tl.srt = 45)
+M <- as.data.frame(M)
+
+cor_with_goal <- as.data.frame(t(as.data.frame(t(M["shot.results.in.goal"]))[-c(39)]))
+
+friendlydf <- as.data.frame(t(as.data.frame(t(arrange(cor_with_goal, shot.results.in.goal)))[c(1:5,35:39)]))
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+# Display the highest and lowest correlations with goals scored
+
+friendlydf$row_names <- factor(row.names(friendlydf), levels = row.names(friendlydf))
+ggplot(friendlydf, aes(x = row_names, y = shot.results.in.goal)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") +
+  labs(title = "Highest and Lowest Correlations with Goal",
+       y = "Correlation with Goals") +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+               plot.title = element_text(hjust=0.5),
+              axis.title.x = element_blank())
+```
+
+
+## Data Source
+### Description of match data from StatsBomb
+### Overview of features within the data
+### Note the unbalanced nature of the data and what we will look for to ensure it does not negatively impact our results (High AUC, sum of xG roughly equals total goals scored)
+
+## Feature Engineering
+### Shot angle to norm (we want to know how much the angle deviates from directly in front of goal)
+### One hot encoding (preparing categorical variables for modeling)
+
+## Exploring Variables of Interest
+### Examining correlation with goals
+
+
+# Model Fitting
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Split the dataset into training and test sets
+
+set.seed(12345)
+library(caTools)
+
+xyz = sample.split(cleanshotsdf$under_pressure, SplitRatio = (4/5))
+trainshotsdf = cleanshotsdf[xyz,]
+testshotsdf = cleanshotsdf[!xyz,]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Build a full logistic regression model
+
+mod1 = glm(shot.results.in.goal ~ under_pressure + shot.first_time + shot.one_on_one + shot.aerial_won + 
+             shot.open_goal + shot.follows_dribble + DistToGoal + DistToKeeper + AngleToGoal + AngleToKeeper + AngleDeviation +
+             DistSGK + density + density.incone + distance.ToD1 + distance.ToD2 + AttackersBehindBall + DefendersBehindBall +
+             DefendersInCone + InCone.GK + DefArea + distance.ToD1.360 + distance.ToD2.360 + 
+             shot.technique.halfvolley + shot.technique.backheel + shot.technique.volley + 
+             shot.technique.overheadkick + shot.technique.divingheader + shot.technique.lob + 
+             shot.body_part.head + shot.body_part.other + AngleToGoalNorm, 
+           data = trainshotsdf, 
+           family ="binomial")
+print(summary(mod1))
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Calculate and store predicted xG from full logistic regression model
+fulllogpredictedxg <- predict(mod1, newdata = testshotsdf, type = "response")
+
+predictedxgdf <- cbind(testshotsdf$shotnumber, testshotsdf$shot.statsbomb_xg)
+colnames(predictedxgdf) <- c("Shot Number", "StatsBomb xG")
+predictedxgdf <- cbind(predictedxgdf, fulllogpredictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE, fig.show='hide'}
+# LASSO Regression
+set.seed(12345)
+library(glmnet)
+cv.out = cv.glmnet(as.matrix((trainshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)])), as.matrix(trainshotsdf[55]), alpha = 1, 
+                   folds = 5, family="binomial")
+print(cv.out$cvm)
+plot(cv.out)
+cat("CV Errors", cv.out$cvm,fill=TRUE)
+cat("Lambda with smallest CV Error",
+cv.out$lambda[which.min(cv.out$cvm)],fill=TRUE)
+cat("Coefficients", as.numeric(coef(cv.out)),fill=TRUE)
+cat("Number of Zero Coefficients",sum(abs(coef(cv.out))<1e-8),
+fill=TRUE)
+
+coef(cv.out)
+
+
+best_lambda = cv.out$lambda[which.min(cv.out$cvm)]
+best_lambda
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+lassopredictedxg <- predict(cv.out, s = best_lambda, newx = as.matrix(testshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)]), 
+                            type = "response")
+
+predictedxgdf <- cbind(predictedxgdf, lassopredictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE, fig.show='hide'}
+# Ridge Regression
+set.seed(12345)
+library(glmnet)
+cv.out = cv.glmnet(as.matrix((trainshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)])), as.matrix(trainshotsdf[55]), alpha = 0, 
+                   folds = 5, family="binomial")
+print(cv.out$cvm)
+plot(cv.out)
+cat("CV Errors", cv.out$cvm,fill=TRUE)
+cat("Lambda with smallest CV Error",
+cv.out$lambda[which.min(cv.out$cvm)],fill=TRUE)
+cat("Coefficients", as.numeric(coef(cv.out)),fill=TRUE)
+cat("Number of Zero Coefficients",sum(abs(coef(cv.out))<1e-8),
+fill=TRUE)
+
+coef(cv.out)
+
+
+best_lambda = cv.out$lambda[which.min(cv.out$cvm)]
+best_lambda
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+ridgepredictedxg <- predict(cv.out, s = best_lambda, newx = as.matrix(testshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)]), 
+                            type = "response")
+
+predictedxgdf <- cbind(predictedxgdf, ridgepredictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE, fig.show='hide'}
+# Elastic Net Regression
+set.seed(12345)
+library(glmnet)
+cv.out = cv.glmnet(as.matrix((trainshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)])), as.matrix(trainshotsdf[55]), alpha = 0.5, 
+                   folds = 5, family="binomial")
+print(cv.out$cvm)
+plot(cv.out)
+cat("CV Errors", cv.out$cvm,fill=TRUE)
+cat("Lambda with smallest CV Error",
+cv.out$lambda[which.min(cv.out$cvm)],fill=TRUE)
+cat("Coefficients", as.numeric(coef(cv.out)),fill=TRUE)
+cat("Number of Zero Coefficients",sum(abs(coef(cv.out))<1e-8),
+fill=TRUE)
+
+coef(cv.out)
+
+
+best_lambda = cv.out$lambda[which.min(cv.out$cvm)]
+best_lambda
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+elasticnetpredictedxg <- predict(cv.out, s = best_lambda, newx = as.matrix(testshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)]), 
+                            type = "response")
+
+predictedxgdf <- cbind(predictedxgdf, elasticnetpredictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Random Forest
+
+library(ISLR)
+library(ISLR2)
+library(tree)
+library(randomForest)
+library(gbm)
+
+set.seed(12345)
+p <- 32
+
+xg.bag <- randomForest(factor(shot.results.in.goal) ~ under_pressure + shot.first_time + shot.one_on_one + shot.aerial_won + 
+             shot.open_goal + shot.follows_dribble + DistToGoal + DistToKeeper + AngleToGoal + AngleToKeeper + AngleDeviation +
+             DistSGK + density + density.incone + distance.ToD1 + distance.ToD2 + AttackersBehindBall + DefendersBehindBall +
+             DefendersInCone + InCone.GK + DefArea + distance.ToD1.360 + distance.ToD2.360 + 
+             shot.technique.halfvolley + shot.technique.backheel + shot.technique.volley + 
+             shot.technique.overheadkick + shot.technique.divingheader + shot.technique.lob + 
+             shot.body_part.head + shot.body_part.other + AngleToGoalNorm, 
+             data = trainshotsdf,
+             mtry = p,
+             importance = T)
+
+baggingpredictedxg <- predict(xg.bag, newdata = testshotsdf, type = "prob")
+baggingpredictedxg <- baggingpredictedxg[,2]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+predictedxgdf <- cbind(predictedxgdf, baggingpredictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+xg.rf1 <- randomForest(factor(shot.results.in.goal) ~ under_pressure + shot.first_time + shot.one_on_one + shot.aerial_won + 
+             shot.open_goal + shot.follows_dribble + DistToGoal + DistToKeeper + AngleToGoal + AngleToKeeper + AngleDeviation +
+             DistSGK + density + density.incone + distance.ToD1 + distance.ToD2 + AttackersBehindBall + DefendersBehindBall +
+             DefendersInCone + InCone.GK + DefArea + distance.ToD1.360 + distance.ToD2.360 + 
+             shot.technique.halfvolley + shot.technique.backheel + shot.technique.volley + 
+             shot.technique.overheadkick + shot.technique.divingheader + shot.technique.lob + 
+             shot.body_part.head + shot.body_part.other + AngleToGoalNorm, 
+             data = trainshotsdf,
+             mtry = (p^0.5),
+             importance = T)
+
+rf1predictedxg <- predict(xg.rf1, newdata = testshotsdf, type = "prob")
+rf1predictedxg <- rf1predictedxg[,2]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+predictedxgdf <- cbind(predictedxgdf, rf1predictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+xg.rf2 <- randomForest(factor(shot.results.in.goal) ~ under_pressure + shot.first_time + shot.one_on_one + shot.aerial_won + 
+             shot.open_goal + shot.follows_dribble + DistToGoal + DistToKeeper + AngleToGoal + AngleToKeeper + AngleDeviation +
+             DistSGK + density + density.incone + distance.ToD1 + distance.ToD2 + AttackersBehindBall + DefendersBehindBall +
+             DefendersInCone + InCone.GK + DefArea + distance.ToD1.360 + distance.ToD2.360 + 
+             shot.technique.halfvolley + shot.technique.backheel + shot.technique.volley + 
+             shot.technique.overheadkick + shot.technique.divingheader + shot.technique.lob + 
+             shot.body_part.head + shot.body_part.other + AngleToGoalNorm, 
+             data = trainshotsdf,
+             mtry = (p/3),
+             importance = T)
+
+rf2predictedxg <- predict(xg.rf2, newdata = testshotsdf, type = "prob")
+rf2predictedxg <- rf2predictedxg[,2]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+predictedxgdf <- cbind(predictedxgdf, rf2predictedxg)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# XGBoost
+
+library(xgboost)
+library(caret)
+library(tidyverse)
+library(mlr)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+params_booster <- list(booster = 'gbtree', eta = 0.3, gamma = 0, max.depth = 4, subsample = 1, colsample_bytree = 1, min_child_weight = 1,
+                       objective = "binary:logistic")
+
+
+bst.cv <- xgb.cv(data = as.matrix(trainshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)]), 
+              label = as.matrix(trainshotsdf[c(55)]), 
+              params = params_booster,
+              nrounds = 100, 
+              nfold = 5,
+              print_every_n = 10,
+              verbose = 2)
+
+best_nrounds <- which.min(bst.cv$evaluation_log$test_logloss_mean)
+best_nrounds
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+set.seed(12345)
+xgboostmod <- xgboost(data = as.matrix(trainshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)]), 
+                     label = as.matrix(trainshotsdf[c(55)]), 
+                     nrounds = best_nrounds, params = params_booster)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+xgboostpredictedxg <- predict(xgboostmod, as.matrix(testshotsdf[c(2,13:15,21,22,27:43,45:47,48:50,53,54,56)]))
+predictedxgdf <- cbind(predictedxgdf, xgboostpredictedxg)
+```
+
+## Splitting of Data
+### 80/20 training/test split
+
+## Fitting Models
+### Full Logistic Regression Model
+#### We fit a logistic regression model that contains all shot related features, with no variable selection
+### LASSO, Ridge, and Elastic Net Logistic Regression Models
+#### We fit these penalized regressions in order to prevent model overfitting
+### Random Forest Models
+#### We fit these models with hope that in sacrificing model interpretability, we could achieve predictive accuracy
+### XGBoost Model
+#### We wanted to fit an XGBoost model to the data as it is an acclaimed model that seems to boast high predictive capability.
+
+
+# Model Evaluation
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+colnames(predictedxgdf) <- c("Shot.Number", "StatsBomb.xG", "Full.Logistic.Regression.xG", "LASSO.xG", "Ridge.xG",
+                             "Elastic.Net.xG", "Bagging.xG", "Random.Forest.1.xG", "Random.Forest.2.xG", "XGBoost.xG")
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(pROC)
+
+evaldf <- as.data.frame(predictedxgdf)[-c(1)]
+evalplusdf <- cbind(evaldf, testshotsdf$shot.results.in.goal)
+
+statsdf <- data.frame(matrix(ncol = 6, nrow = 9))
+colnames(statsdf) <- c("AUC", "Specificity", "Sensitivity", "Balanced Accuracy", "Sum Total of xG", "Total xG minus Goals")
+rownames(statsdf) <- c("StatsBomb.xG", "Full.Logistic.Regression.xG", "LASSO.xG", "Ridge.xG",
+                             "Elastic.Net.xG", "Bagging.xG", "Random.Forest.1.xG", "Random.Forest.2.xG", "XGBoost.xG")
+statsdf <- as.data.frame(t(statsdf))
+
+
+# 1
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, StatsBomb.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[1] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[1])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[1] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 2
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, Full.Logistic.Regression.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[2] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[2])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[2] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 3
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, LASSO.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[3] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[3])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[3] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 4
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, Ridge.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[4] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[4])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[4] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 5
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, Elastic.Net.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[5] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[5])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[5] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 6
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, Bagging.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[6] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[6])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[6] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 7
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, Random.Forest.1.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[7] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[7])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[7] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 8
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, Random.Forest.2.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[8] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[8])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[8] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+
+# 9
+roc_obj <- roc(data = evalplusdf , testshotsdf$shot.results.in.goal, XGBoost.xG)
+calc_auc <- auc(roc_obj)
+wxyz <- ifelse((evaldf[9] > 0.5), 1, 0)
+abcd <- testshotsdf$shot.results.in.goal
+pdq <- confusionMatrix(factor(wxyz), factor(abcd), mode = "everything", positive = "1")$byClass
+calc_bal_acc <- pdq["Balanced Accuracy"]
+calc_spec <- pdq["Specificity"]
+calc_sens <- pdq["Sensitivity"]
+sum_xg <- sum(evaldf[9])
+sum_xg_less_goals <- sum_xg - sum(abcd)
+statsdf[9] <- c(calc_auc, calc_spec, calc_sens, calc_bal_acc, sum_xg, sum_xg_less_goals)
+```
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+library(kableExtra)
+
+as.data.frame(t(statsdf)) %>%
+  kable(digits = c(3, 3, 3, 3, 1, 1), caption = "Model Evaluation Statistics", booktabs=T) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE, latex_options="scale_down")
+```
+
+
+
+
+
+
+
+## Diagnostic Statistics
+### AUC
+### F1-Score
+### Accuracy, Type I Error Rate, and Type II Error Rate
+### Sum total of xG vs Sum total goals scored
+
+## Comparison to StatsBomb xG
+### Performs just worse by AUC, F1-Score criteria
+
+
+# xG Model Uses
+
+## xG Heatmap
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(tidyverse)
+
+heatmap = cleanshotsdf %>% mutate(location.x = ifelse(location.x>120, 120, location.x),
+location.y = ifelse(location.y>80, 80, location.y),
+location.x = ifelse(location.x<0, 0, location.x),
+location.y = ifelse(location.y<0, 0, location.y))
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+heatmap$xbin <- cut(heatmap$location.x, breaks = seq(from=0, to=120, by = 2),include.lowest=TRUE) 
+heatmap$ybin <- cut(heatmap$location.y, breaks = seq(from=0, to=80, by = 2),include.lowest=TRUE) 
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+heatmap = heatmap%>%
+group_by(xbin, ybin) %>%
+mutate(xG = mean(shot.statsbomb_xg))
+```
+
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(grid)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+shotmapxgcolors <- c("#ffffff", "#f4ef95", "#FDE960", "#FCDC5F", "#F5B94D", "#F0983E", "#ED8A37", "#E66424", "#D54F1B", "#DC2608", "#BF0000", "#7F0000", "#5F0000")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+ggplot(data= heatmap, aes(x = location.x, y = location.y, fill = xG, group =xG)) + 
+    geom_bin2d(binwidth = c(2, 2), position = "identity", alpha = 0.9) +
+    annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax =
+   60,ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "black", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "black", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "black", size = 1.05) + annotate("path", colour = "black", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "black", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6, y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") + annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6, y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") +
+  scale_fill_gradientn(colours = shotmapxgcolors) + 
+  theme(axis.text.x=element_blank(),
+axis.text.y=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.title = element_text(hjust=0.5),
+plot.subtitle = element_text(hjust=0.5)) +
+labs(title = "xG by Area on Pitch", subtitle = "La Liga, 2014/15")
+```
+
+## Player Analysis - Leo Messi xG vs Goals Scored
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+# Pull La Liga Match Data
+Comp <- FreeCompetitions()[c(42),]
+Matches <- FreeMatches(Comp)
+StatsBombData <- free_allevents(MatchesDF = Matches, Parallel = T)
+StatsBombData = allclean(StatsBombData)
+messidata = StatsBombData
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+messidatadf = messidata[messidata$type.id==16,]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+cleanmessidatadf = messidatadf[c("location", "under_pressure", "type.name", "possession_team.name", "play_pattern.name", "team.id", "team.name", "player.id", "player.name", "position.name", "shot.statsbomb_xg", "shot.freeze_frame", "shot.first_time", "shot.one_on_one", "shot.aerial_won", "shot.technique.name", "shot.body_part.name", "shot.outcome.name", "shot.type.name", "match_id", "shot.open_goal", "shot.follows_dribble", "location.x", "location.y", "location.x.GK", "location.y.GK", "DistToGoal", "DistToKeeper", "AngleToGoal", "AngleToKeeper", "AngleDeviation", "DistSGK", "density", "density.incone", "distance.ToD1", "distance.ToD2", "AttackersBehindBall", "DefendersBehindBall", "DefendersInCone", "InCone.GK", "DefArea", "distance.ToD1.360", "distance.ToD2.360")]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+cleanmessidatadf <- cleanmessidatadf[cleanmessidatadf$shot.type.name=="Open Play",]
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+cleanmessidatadf$under_pressure <- ifelse(is.na(cleanmessidatadf$under_pressure), 0, 1)
+
+cleanmessidatadf$shot.first_time <- ifelse(is.na(cleanmessidatadf$shot.first_time), 0, 1)
+
+cleanmessidatadf$shot.one_on_one <- ifelse(is.na(cleanmessidatadf$shot.one_on_one), 0, 1)
+
+cleanmessidatadf$shot.aerial_won <- ifelse(is.na(cleanmessidatadf$shot.aerial_won), 0, 1)
+
+cleanmessidatadf$shot.technique.normal <- ifelse((cleanmessidatadf$shot.technique.name == "Normal"), 1, 0)
+cleanmessidatadf$shot.technique.halfvolley <- ifelse((cleanmessidatadf$shot.technique.name == "Half Volley"), 1, 0)
+cleanmessidatadf$shot.technique.backheel <- ifelse((cleanmessidatadf$shot.technique.name == "Backheel"), 1, 0)
+cleanmessidatadf$shot.technique.volley <- ifelse((cleanmessidatadf$shot.technique.name == "Volley"), 1, 0)
+cleanmessidatadf$shot.technique.overheadkick <- ifelse((cleanmessidatadf$shot.technique.name == "Overhead Kick"), 1, 0)
+cleanmessidatadf$shot.technique.divingheader <- ifelse((cleanmessidatadf$shot.technique.name == "Diving Header"), 1, 0)
+cleanmessidatadf$shot.technique.lob <- ifelse((cleanmessidatadf$shot.technique.name == "Lob"), 1, 0)
+
+
+cleanmessidatadf$shot.body_part.leftfoot <- ifelse((cleanmessidatadf$shot.body_part.name == "Left Foot"), 1, 0)
+cleanmessidatadf$shot.body_part.rightfoot <- ifelse((cleanmessidatadf$shot.body_part.name == "Right Foot"), 1, 0)
+cleanmessidatadf$shot.body_part.head <- ifelse((cleanmessidatadf$shot.body_part.name == "Head"), 1, 0)
+cleanmessidatadf$shot.body_part.other <- ifelse((cleanmessidatadf$shot.body_part.name == "Other"), 1, 0)
+
+
+cleanmessidatadf$shot.open_goal <- ifelse(is.na(cleanmessidatadf$shot.open_goal), 0, 1)
+
+cleanmessidatadf$shot.follows_dribble <- ifelse(is.na(cleanmessidatadf$shot.follows_dribble), 0, 1)
+
+cleanmessidatadf$shot.results.in.goal <- ifelse((cleanmessidatadf$shot.outcome.name == "Goal"), 1, 0)
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+cleanmessidatadf$AngleToGoalNorm <- abs(cleanmessidatadf$AngleToGoal - 90)
+
+cleanmessidatadf$shotnumber <- c(1:length(cleanmessidatadf$shot.aerial_won))
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+playerdf <- as.data.frame(unique(cleanmessidatadf["player.name"]))
+playerdf$goals = 0
+playerdf$xG = 0
+
+for (i in 1:length(playerdf$player.name)) {
+  playerdf$goals[i] = sum(cleanmessidatadf[(cleanmessidatadf["player.name"] == playerdf$player.name[i]),]["shot.results.in.goal"])
+  playerdf$xG[i] = sum(cleanmessidatadf[(cleanmessidatadf["player.name"] == playerdf$player.name[i]),]["shot.statsbomb_xg"])
+}
+```
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(gridExtra)
+library(scales)
+library(colorspace)
+
+
+stats <- data.frame(Category = c("Goals", "xG"), Value = c(36, 22.8))
+bar_colors <- c("#EDBB00", lighten("#EDBB00", amount = 0.5))
+p1 <- ggplot(stats, aes(x = Category, y = Value, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.5, fill = bar_colors) +
+  labs(title = "Lionel Messi",
+       y = "Count",
+       x = element_blank()) +
+  theme_minimal() +
+  theme(legend.position = "none",
+  plot.title = element_text(hjust=0.5)) +
+  ylim(c(0,40))
+
+stats <- data.frame(Category = c("Goals", "xG"), Value = c(20, 15.8))
+bar_colors <- c("#004D98", lighten("#004D98", amount = 0.5))
+p2 <- ggplot(stats, aes(x = Category, y = Value, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.5, fill = bar_colors) +
+  labs(title = "Neymar",
+       y = "Count",
+       x = element_blank()) +
+  theme_minimal() +
+  theme(legend.position = "none",
+  plot.title = element_text(hjust=0.5)) +
+  ylim(c(0,40))
+
+stats <- data.frame(Category = c("Goals", "xG"), Value = c(16, 12.2))
+bar_colors <- c("#A50044", lighten("#A50044", amount = 0.5))
+p3 <- ggplot(stats, aes(x = Category, y = Value, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.5, fill = bar_colors) +
+  labs(title = "Luis Suarez",
+       y = "Count",
+       x = element_blank()) +
+  theme_minimal() +
+  theme(legend.position = "none",
+  plot.title = element_text(hjust=0.5)) +
+  ylim(c(0,40))
+```
+
+
+```{r, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+stats <- data.frame(Category = c("Messi", "Neymar", "Suarez"), Value = c(36/22.8, 20/15.8, 16/12.2))
+bar_colors <- c("#EDBB00", "#004D98", "#A50044")
+p4 <- ggplot(stats, aes(x = Category, y = Value, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.5, fill = bar_colors) +
+  labs(title = "Goal to xG Ratio",
+       y = "Ratio",
+       x = element_blank()) +
+  theme_minimal() +
+  theme(legend.position = "none",
+  plot.title = element_text(hjust=0.5))
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+lay <- rbind(c(1,2,3),
+             c(4,4,4))
+grid.arrange(p1, p2, p3, p4, layout_matrix = lay)
+```
+
+
+
+
+# Recap
+
+## Overview of Results
+## Limits of study and possible areas of future exploration
+
+
